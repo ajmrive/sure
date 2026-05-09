@@ -151,6 +151,14 @@ en:
       holdings: Holdings
       sell_trades: Sell Trades
       and_more: "+%{count} more"
+    category_monthly_pivot:
+      title: Category by Month
+      category: Category
+      total: Total
+      monthly_total: Monthly Total
+      avg_year: "Avg %{year}"
+      legend: "Red intensity = higher expense, green intensity = higher income relative to the period."
+      no_data: No transaction data available for this period.
     investment_flows:
       title: Investment Flows
       description: Track money flowing into and out of your investment accounts

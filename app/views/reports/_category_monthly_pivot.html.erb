@@ -1,0 +1,138 @@
+<%# Renders a pivot table: categories (rows) × months (columns) with heatmap coloring %>
+<%# Local variables: category_monthly_data %>
+
+<%
+  months = category_monthly_data[:months]
+  rows = category_monthly_data[:rows]
+  month_totals = category_monthly_data[:month_totals]
+  grand_total = category_monthly_data[:grand_total]
+  currency = category_monthly_data[:currency]
+  current_year = category_monthly_data[:current_year]
+  show_cy_avg = category_monthly_data[:current_year_months_count].to_i > 0
+  cy_avg_total = category_monthly_data[:current_year_avg_total]
+
+  # Calculate the max absolute value for heatmap intensity scaling
+  all_values = rows.flat_map { |row| months.map { |m| row[:months][m] || 0 } }
+  max_abs = all_values.map(&:abs).max || 1
+
+  # Helper to compute heatmap background style
+  # Positive (expenses) = red tones, Negative (income/savings) = green tones
+  heatmap_style = ->(value) {
+    return "" if value == 0
+    intensity = [(value.abs.to_f / max_abs * 0.45), 0.45].min
+    if value > 0
+      "background-color: rgba(239, 68, 68, #{intensity});"  # red
+    else
+      "background-color: rgba(34, 197, 94, #{intensity});"   # green
+    end
+  }
+%>
+
+<% if rows.any? %>
+  <div class="overflow-x-auto">
+    <div class="bg-container-inset rounded-xl p-1">
+      <div class="rounded-lg shadow-border-xs bg-container overflow-hidden">
+        <table class="w-full text-sm">
+          <thead class="bg-container-inset">
+            <tr class="uppercase text-xs font-medium text-secondary">
+              <th class="px-3 py-2 text-left font-medium sticky left-0 bg-container-inset z-10 min-w-[160px]">
+                <%= t("reports.category_monthly_pivot.category") %>
+              </th>
+              <% months.each do |month| %>
+                <th class="px-3 py-2 text-right font-medium whitespace-nowrap min-w-[100px]">
+                  <%= l(month, format: "%b %Y") %>
+                </th>
+              <% end %>
+              <th class="px-3 py-2 text-right font-medium whitespace-nowrap min-w-[110px]">
+                <%= t("reports.category_monthly_pivot.total") %>
+              </th>
+              <% if show_cy_avg %>
+                <th class="px-3 py-2 text-right font-medium whitespace-nowrap min-w-[110px]">
+                  <%= t("reports.category_monthly_pivot.avg_year", year: current_year) %>
+                </th>
+              <% end %>
+            </tr>
+          </thead>
+          <tbody>
+            <% rows.each_with_index do |row, idx| %>
+              <tr class="<%= 'border-t border-primary/5' if idx > 0 %>">
+                <td class="px-3 py-2 text-left font-medium text-primary sticky left-0 bg-container z-10 truncate max-w-[200px]" title="<%= row[:category] %>">
+                  <%= row[:category] %>
+                </td>
+                <% months.each do |month| %>
+                  <% value = row[:months][month] || 0 %>
+                  <td class="px-3 py-2 text-right tabular-nums privacy-sensitive whitespace-nowrap"
+                      style="<%= heatmap_style.call(value) %>">
+                    <% if value != 0 %>
+                      <span class="<%= value > 0 ? 'text-destructive' : 'text-success' %>">
+                        <%= Money.new(value.abs, currency).format %>
+                      </span>
+                    <% else %>
+                      <span class="text-subdued">—</span>
+                    <% end %>
+                  </td>
+                <% end %>
+                <td class="px-3 py-2 text-right font-semibold tabular-nums privacy-sensitive whitespace-nowrap">
+                  <span class="<%= row[:total] > 0 ? 'text-destructive' : 'text-success' %>">
+                    <%= Money.new(row[:total].abs, currency).format %>
+                  </span>
+                </td>
+                <% if show_cy_avg %>
+                  <% cy_avg = row[:current_year_avg] %>
+                  <td class="px-3 py-2 text-right font-semibold tabular-nums privacy-sensitive whitespace-nowrap">
+                    <% if cy_avg && cy_avg != 0 %>
+                      <span class="<%= cy_avg > 0 ? 'text-destructive' : 'text-success' %>">
+                        <%= Money.new(cy_avg.abs, currency).format %>
+                      </span>
+                    <% else %>
+                      <span class="text-subdued">—</span>
+                    <% end %>
+                  </td>
+                <% end %>
+              </tr>
+            <% end %>
+          </tbody>
+          <tfoot>
+            <tr class="border-t-2 border-primary/20 bg-container-inset font-semibold">
+              <td class="px-3 py-2 text-left sticky left-0 bg-container-inset z-10">
+                <%= t("reports.category_monthly_pivot.monthly_total") %>
+              </td>
+              <% months.each do |month| %>
+                <% value = month_totals[month] || 0 %>
+                <td class="px-3 py-2 text-right tabular-nums privacy-sensitive whitespace-nowrap"
+                    style="<%= heatmap_style.call(value) %>">
+                  <span class="<%= value > 0 ? 'text-destructive' : 'text-success' %>">
+                    <%= Money.new(value.abs, currency).format %>
+                  </span>
+                </td>
+              <% end %>
+              <td class="px-3 py-2 text-right tabular-nums privacy-sensitive whitespace-nowrap">
+                <span class="<%= grand_total > 0 ? 'text-destructive' : 'text-success' %>">
+                  <%= Money.new(grand_total.abs, currency).format %>
+                </span>
+              </td>
+              <% if show_cy_avg %>
+                <td class="px-3 py-2 text-right tabular-nums privacy-sensitive whitespace-nowrap">
+                  <% if cy_avg_total && cy_avg_total != 0 %>
+                    <span class="<%= cy_avg_total > 0 ? 'text-destructive' : 'text-success' %>">
+                      <%= Money.new(cy_avg_total.abs, currency).format %>
+                    </span>
+                  <% else %>
+                    <span class="text-subdued">—</span>
+                  <% end %>
+                </td>
+              <% end %>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+  </div>
+  <p class="mt-2 text-xs text-subdued">
+    <%= t("reports.category_monthly_pivot.legend") %>
+  </p>
+<% else %>
+  <p class="text-secondary text-sm py-4 text-center">
+    <%= t("reports.category_monthly_pivot.no_data") %>
+  </p>
+<% end %>

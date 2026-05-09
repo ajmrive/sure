@@ -151,6 +151,14 @@ es:
       holdings: Activos
       sell_trades: Operaciones de venta
       and_more: "+%{count} más"
+    category_monthly_pivot:
+      title: Categorías por mes
+      category: Categoría
+      total: Total
+      monthly_total: Total mensual
+      avg_year: "Media %{year}"
+      legend: "Rojo más intenso = mayor gasto, verde más intenso = mayor ingreso respecto al periodo."
+      no_data: No hay datos de transacciones para este periodo.
     investment_flows:
       title: Flujos de inversión
       description: Controla el dinero que entra y sale de tus cuentas de inversión

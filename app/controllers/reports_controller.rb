@@ -126,6 +126,9 @@ class ReportsController < ApplicationController
       # Investment flows (contributions/withdrawals)
       @investment_flows = InvestmentFlowStatement.new(Current.family, user: Current.user).period_totals(period: @period)
 
+      # Category monthly pivot (reuses export breakdown logic)
+      @category_monthly_data = build_monthly_breakdown_for_view
+
       # Flags for view rendering
       @has_accounts = accessible_accounts.any?
     end
@@ -170,6 +173,14 @@ class ReportsController < ApplicationController
           partial: "reports/investment_flows",
           locals: { investment_flows: @investment_flows },
           visible: @investment_metrics[:has_investments] && (@investment_flows.contributions.amount > 0 || @investment_flows.withdrawals.amount > 0),
+          collapsible: true
+        },
+        {
+          key: "category_monthly_pivot",
+          title: "reports.category_monthly_pivot.title",
+          partial: "reports/category_monthly_pivot",
+          locals: { category_monthly_data: @category_monthly_data },
+          visible: @has_accounts && @category_monthly_data[:months].size > 1,
           collapsible: true
         },
         {
@@ -671,6 +682,92 @@ class ReportsController < ApplicationController
       else
         transactions.order("entries.date DESC")
       end
+    end
+
+    def build_monthly_breakdown_for_view
+      # Generate list of months in the period
+      months = []
+      current_month = @start_date.beginning_of_month
+      end_of_period = @end_date.end_of_month
+
+      while current_month <= end_of_period
+        months << current_month
+        current_month = current_month.next_month
+      end
+
+      # Match income_statement logic: exclude pending, budget-excluded kinds
+      transactions = Transaction
+        .joins(:entry)
+        .joins(entry: :account)
+        .where(accounts: { family_id: Current.family.id, status: [ "draft", "active" ] })
+        .where(entries: { entryable_type: "Transaction", excluded: false, date: @period.date_range })
+        .where.not(kind: Transaction::BUDGET_EXCLUDED_KINDS)
+        .excluding_pending
+        .includes(entry: :account, category: [])
+
+      transactions = apply_transaction_filters(transactions)
+
+      family_currency = Current.family.currency
+      breakdown = {}
+
+      transactions.each do |transaction|
+        entry = transaction.entry
+        category_name = transaction.category&.name || I18n.t("reports.transactions_breakdown.table.uncategorized")
+        month_key = entry.date.beginning_of_month
+
+        begin
+          converted_amount = Money.new(entry.amount.abs, entry.currency).exchange_to(family_currency).amount
+        rescue Money::ConversionError
+          converted_amount = entry.amount.abs
+        end
+
+        # Match income_statement classification:
+        # investment_contribution and loan_payment are always treated as expenses
+        is_forced_expense = transaction.kind.in?(%w[investment_contribution loan_payment])
+        signed_amount = if is_forced_expense
+          converted_amount
+        else
+          entry.amount > 0 ? converted_amount : -converted_amount
+        end
+
+        breakdown[category_name] ||= { months: {}, total: 0 }
+        breakdown[category_name][:months][month_key] ||= 0
+        breakdown[category_name][:months][month_key] += signed_amount
+        breakdown[category_name][:total] += signed_amount
+      end
+
+      # Current-year YTD average: divide the sum across current-year months that
+      # fall within the displayed range by that count. Keeps the metric honest
+      # when the period only partially overlaps the current year.
+      current_year = Date.current.year
+      current_year_months = months.select { |m| m.year == current_year }
+      cy_count = current_year_months.size
+
+      # Sort by total descending (highest expense first)
+      rows = breakdown.sort_by { |_name, data| -data[:total] }.map do |name, data|
+        cy_sum = current_year_months.sum { |m| data[:months][m] || 0 }
+        cy_avg = cy_count.positive? ? (cy_sum / cy_count) : nil
+        { category: name, months: data[:months], total: data[:total], current_year_avg: cy_avg }
+      end
+
+      # Column totals
+      month_totals = months.each_with_object({}) do |month, totals|
+        totals[month] = rows.sum { |row| row[:months][month] || 0 }
+      end
+
+      cy_totals_sum = current_year_months.sum { |m| month_totals[m] || 0 }
+      cy_totals_avg = cy_count.positive? ? (cy_totals_sum / cy_count) : nil
+
+      {
+        months: months,
+        rows: rows,
+        month_totals: month_totals,
+        grand_total: rows.sum { |row| row[:total] },
+        currency: family_currency,
+        current_year: current_year,
+        current_year_months_count: cy_count,
+        current_year_avg_total: cy_totals_avg
+      }
     end
 
     def build_monthly_breakdown_for_export
