@@ -19,4 +19,8 @@ export PORT="${PORT:-3000}"
 export RUBY_DEBUG_OPEN="true"
 export RUBY_DEBUG_LAZY="true"
 
+# Clear stale Puma PID file so the server can restart cleanly after a crash
+# (in Docker, tmp/ is bind-mounted and survives container exits).
+rm -f tmp/pids/server.pid
+
 exec bundle exec foreman start -f Procfile.dev "$@"
