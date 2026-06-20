@@ -41,7 +41,8 @@ services:
       - bundle_cache:/bundle
       - app-storage:/workspace/storage
     ports:
-      - ${PORT:-4000}:3000
+      # Bind to loopback only so the app isn't reachable from the LAN.
+      - 127.0.0.1:${PORT:-4000}:3000
     restart: unless-stopped
     working_dir: /workspace
     command: bin/dev
