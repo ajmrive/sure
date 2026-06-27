@@ -29,8 +29,8 @@ class Transaction::Search
       # This already joins entries + accounts. To avoid expensive double-joins, don't join them again (causes full table scan)
       query = family.transactions.merge(Entry.excluding_split_parents)
 
-      # Scope to accessible accounts when provided
-      query = query.where(entries: { account_id: accessible_account_ids }) if accessible_account_ids
+      # Scope to accessible accounts when provided (including an empty array, which should yield no results)
+      query = query.where(entries: { account_id: accessible_account_ids }) unless accessible_account_ids.nil?
 
       query = apply_active_accounts_filter(query, active_accounts_only)
       query = apply_category_filter(query, categories)
@@ -88,11 +88,11 @@ class Transaction::Search
                   .take
 
         Totals.new(
-          count: result.transactions_count.to_i,
-          income_money: Money.new(result.income_total, family.currency),
-          expense_money: Money.new(result.expense_total, family.currency),
-          transfer_inflow_money: Money.new(result.transfer_inflow_total, family.currency),
-          transfer_outflow_money: Money.new(result.transfer_outflow_total, family.currency)
+          count: result&.transactions_count.to_i,
+          income_money: Money.new((result&.income_total || 0), family.currency),
+          expense_money: Money.new((result&.expense_total || 0), family.currency),
+          transfer_inflow_money: Money.new((result&.transfer_inflow_total || 0), family.currency),
+          transfer_outflow_money: Money.new((result&.transfer_outflow_total || 0), family.currency)
         )
       end
     end
@@ -196,23 +196,14 @@ class Transaction::Search
       return query unless statuses.present?
       return query if statuses.uniq.sort == [ "confirmed", "pending" ] # Both selected = no filter
 
-      pending_condition = <<~SQL.squish
-        (transactions.extra -> 'simplefin' ->> 'pending')::boolean = true
-        OR (transactions.extra -> 'plaid' ->> 'pending')::boolean = true
-        OR (transactions.extra -> 'lunchflow' ->> 'pending')::boolean = true
-      SQL
-
-      confirmed_condition = <<~SQL.squish
-        (transactions.extra -> 'simplefin' ->> 'pending')::boolean IS DISTINCT FROM true
-        AND (transactions.extra -> 'plaid' ->> 'pending')::boolean IS DISTINCT FROM true
-        AND (transactions.extra -> 'lunchflow' ->> 'pending')::boolean IS DISTINCT FROM true
-      SQL
-
+      # Delegate to the model scopes so the provider list stays sourced from
+      # Transaction::PENDING_PROVIDERS. Previously this method hardcoded only
+      # simplefin/plaid/lunchflow, silently dropping enable_banking transactions.
       case statuses.sort
       when [ "pending" ]
-        query.where(pending_condition)
+        query.pending
       when [ "confirmed" ]
-        query.where(confirmed_condition)
+        query.excluding_pending
       else
         query
       end

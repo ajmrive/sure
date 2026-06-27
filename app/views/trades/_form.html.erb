@@ -2,7 +2,7 @@
 
 <% type = params[:type] || "buy" %>
 
-<%= styled_form_with url: trades_path(account_id: account&.id), scope: :model, data: { controller: "trade-form" } do |form| %>
+<%= styled_form_with url: trades_path(account_id: account&.id), scope: :model, data: { controller: "trade-form", trade_type: type } do |form| %>
   <div class="space-y-4">
     <% if model.errors.any? %>
       <%= render "shared/form_errors", model: model %>
@@ -51,7 +51,7 @@
       <%= form.date_field :date, label: true, value: model.date || Date.current, required: true %>
 
       <% unless %w[buy sell].include?(type) %>
-        <%= form.money_field :amount, label: t(".amount"), value: model.amount, required: true %>
+        <%= form.money_field :amount, label: t(".amount"), value: model.amount, required: true, default_currency: account&.currency %>
       <% end %>
 
       <% if %w[deposit withdrawal].include?(type) %>
@@ -60,8 +60,8 @@
 
       <% if %w[buy sell].include?(type) %>
         <%= form.number_field :qty, label: t(".qty"), placeholder: "10", min: 0.000000000000000001, step: "any", required: true %>
-        <%= form.money_field :price, label: t(".price"), step: "any", precision: 10, required: true %>
-        <%= form.money_field :fee, label: t(".fee"), step: "any", min: 0 %>
+        <%= form.money_field :price, label: t(".price"), step: "any", precision: 10, required: true, default_currency: account&.currency %>
+        <%= form.money_field :fee, label: t(".fee"), step: "any", min: 0, default_currency: account&.currency %>
       <% end %>
     </div>
 

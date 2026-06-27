@@ -20,6 +20,8 @@ class SnaptradeItem < ApplicationRecord
     encrypts :client_id, deterministic: true
     encrypts :consumer_key, deterministic: true
     encrypts :snaptrade_user_secret
+    encrypts :oauth_access_token
+    encrypts :oauth_refresh_token
   end
 
   validates :name, presence: true
@@ -35,6 +37,7 @@ class SnaptradeItem < ApplicationRecord
   has_many :linked_accounts, through: :snaptrade_accounts
 
   scope :active, -> { where(scheduled_for_deletion: false) }
+  scope :credentials_configured, -> { active.where.not(client_id: [ nil, "" ]).where.not(consumer_key: [ nil, "" ]) }
   # Syncable = active + fully configured (user registered with SnapTrade API)
   # Items without user registration will fail sync, so exclude them from auto-sync
   scope :syncable, -> { active.where.not(snaptrade_user_id: [ nil, "" ]).where.not(snaptrade_user_secret: [ nil, "" ]) }
@@ -156,6 +159,10 @@ class SnaptradeItem < ApplicationRecord
                   .where.not(institution_metadata: nil)
                   .map { |acc| acc.institution_metadata }
                   .uniq { |inst| inst["name"] || inst["institution_name"] }
+  end
+
+  def oauth_token_active?
+    oauth_access_token.present? && (oauth_token_expires_at.blank? || oauth_token_expires_at.future?)
   end
 
   def institution_summary

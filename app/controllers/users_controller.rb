@@ -6,7 +6,7 @@ class UsersController < ApplicationController
     if @user.resend_confirmation_email
       redirect_to settings_profile_path, notice: t(".success")
     else
-      redirect_to settings_profile_path, alert: t("no_pending_change")
+      redirect_to settings_profile_path, alert: t(".no_pending_change")
     end
   end
 
@@ -27,21 +27,27 @@ class UsersController < ApplicationController
       end
     else
       was_ai_enabled = @user.ai_enabled
-      @user.update!(user_params.except(:redirect_to, :delete_profile_image))
-      @user.profile_image.purge if should_purge_profile_image?
+      if @user.update(user_params.except(:redirect_to, :delete_profile_image))
+        @user.profile_image.purge if should_purge_profile_image?
 
-      # Add a special notice if AI was just enabled or disabled
-      notice = if !was_ai_enabled && @user.ai_enabled
-        "AI Assistant has been enabled successfully."
-      elsif was_ai_enabled && !@user.ai_enabled
-        "AI Assistant has been disabled."
+        # Add a special notice if AI was just enabled or disabled
+        notice = if !was_ai_enabled && @user.ai_enabled
+          "AI Assistant has been enabled successfully."
+        elsif was_ai_enabled && !@user.ai_enabled
+          "AI Assistant has been disabled."
+        else
+          t(".success")
+        end
+
+        respond_to do |format|
+          format.html { handle_redirect(notice) }
+          format.json { head :ok }
+        end
       else
-        t(".success")
-      end
-
-      respond_to do |format|
-        format.html { handle_redirect(notice) }
-        format.json { head :ok }
+        respond_to do |format|
+          format.html { redirect_to settings_profile_path, alert: @user.errors.full_messages.to_sentence }
+          format.json { render json: { errors: @user.errors.full_messages }, status: :unprocessable_entity }
+        end
       end
     end
   end
@@ -107,7 +113,10 @@ class UsersController < ApplicationController
 
     def user_params
       family_attrs = [ :name, :currency, :country, :date_format, :timezone, :locale, :month_start_day, :id ]
-      family_attrs.push(:moniker, :default_account_sharing) if Current.user.admin?
+      if Current.user.admin?
+        family_attrs.push(:moniker, :default_account_sharing)
+        family_attrs << { enabled_currencies: [] }
+      end
 
       params.require(:user).permit(
         :first_name, :last_name, :email, :profile_image, :redirect_to, :delete_profile_image, :onboarded_at,
@@ -127,8 +136,9 @@ class UsersController < ApplicationController
 
       moniker_changed = family_attrs[:moniker].present? && family_attrs[:moniker] != Current.family.moniker
       sharing_changed = family_attrs[:default_account_sharing].present? && family_attrs[:default_account_sharing] != Current.family.default_account_sharing
+      enabled_currencies_changed = family_attrs.key?(:enabled_currencies)
 
-      moniker_changed || sharing_changed
+      moniker_changed || sharing_changed || enabled_currencies_changed
     end
 
     def ensure_admin

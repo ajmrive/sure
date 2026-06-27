@@ -169,4 +169,106 @@ class BudgetCategoryTest < ActiveSupport::TestCase
     assert_equal 20, @subcategory_with_limit_bc.reload.budgeted_spending
     assert_equal 50, @subcategory_inheriting_bc.reload.budgeted_spending
   end
+
+  test "budgeted? returns true only when display_budgeted_spending > 0" do
+    @subcategory_with_limit_bc.stubs(:display_budgeted_spending).returns(100)
+    assert @subcategory_with_limit_bc.budgeted?
+
+    @subcategory_with_limit_bc.stubs(:display_budgeted_spending).returns(0)
+    refute @subcategory_with_limit_bc.budgeted?
+
+    @subcategory_with_limit_bc.stubs(:display_budgeted_spending).returns(nil)
+    refute @subcategory_with_limit_bc.budgeted?
+  end
+
+  test "unbudgeted_with_spending? is true only when not budgeted and has spending" do
+    @subcategory_with_limit_bc.stubs(:budgeted?).returns(false)
+    @subcategory_with_limit_bc.stubs(:actual_spending).returns(10)
+    assert @subcategory_with_limit_bc.unbudgeted_with_spending?
+
+    @subcategory_with_limit_bc.stubs(:budgeted?).returns(true)
+    assert_not @subcategory_with_limit_bc.unbudgeted_with_spending?
+
+    @subcategory_with_limit_bc.stubs(:budgeted?).returns(false)
+    @subcategory_with_limit_bc.stubs(:actual_spending).returns(0)
+    assert_not @subcategory_with_limit_bc.unbudgeted_with_spending?
+
+    @subcategory_with_limit_bc.stubs(:actual_spending).returns(nil)
+    assert_not @subcategory_with_limit_bc.unbudgeted_with_spending?
+  end
+
+  test "over_budget_with_budget? requires both budgeted and over_budget" do
+    @subcategory_with_limit_bc.stubs(:budgeted?).returns(true)
+    @subcategory_with_limit_bc.stubs(:over_budget?).returns(true)
+    assert @subcategory_with_limit_bc.over_budget_with_budget?
+
+    @subcategory_with_limit_bc.stubs(:over_budget?).returns(false)
+    assert_not @subcategory_with_limit_bc.over_budget_with_budget?
+
+    @subcategory_with_limit_bc.stubs(:budgeted?).returns(false)
+    @subcategory_with_limit_bc.stubs(:over_budget?).returns(true)
+    assert_not @subcategory_with_limit_bc.over_budget_with_budget?
+  end
+
+  test "on_track? is true only when budgeted and not over_budget" do
+    @subcategory_with_limit_bc.stubs(:budgeted?).returns(true)
+    @subcategory_with_limit_bc.stubs(:over_budget?).returns(false)
+    assert @subcategory_with_limit_bc.on_track?
+
+    @subcategory_with_limit_bc.stubs(:over_budget?).returns(true)
+    assert_not @subcategory_with_limit_bc.on_track?
+
+    @subcategory_with_limit_bc.stubs(:budgeted?).returns(false)
+    @subcategory_with_limit_bc.stubs(:over_budget?).returns(false)
+    assert_not @subcategory_with_limit_bc.on_track?
+  end
+
+  test "any_over_budget? is true if either condition is true" do
+    @subcategory_with_limit_bc.stubs(:unbudgeted_with_spending?).returns(true)
+    @subcategory_with_limit_bc.stubs(:over_budget_with_budget?).returns(false)
+    assert @subcategory_with_limit_bc.any_over_budget?
+
+    @subcategory_with_limit_bc.stubs(:unbudgeted_with_spending?).returns(false)
+    @subcategory_with_limit_bc.stubs(:over_budget_with_budget?).returns(true)
+    assert @subcategory_with_limit_bc.any_over_budget?
+
+    @subcategory_with_limit_bc.stubs(:unbudgeted_with_spending?).returns(false)
+    @subcategory_with_limit_bc.stubs(:over_budget_with_budget?).returns(false)
+    assert_not @subcategory_with_limit_bc.any_over_budget?
+  end
+
+  test "visible_on_track? behavior for different category types" do
+    # 1. not on_track => always false
+    @subcategory_with_limit_bc.stubs(:on_track?).returns(false)
+    assert_not @subcategory_with_limit_bc.visible_on_track?
+
+    # 2. normal category (not subcategory) => true if on_track
+    @parent_budget_category.stubs(:on_track?).returns(true)
+    assert @parent_budget_category.visible_on_track?
+
+    # 3. subcategory inheriting, no spending => hidden
+    @subcategory_inheriting_bc.stubs(:on_track?).returns(true)
+    @subcategory_inheriting_bc.stubs(:actual_spending).returns(0)
+    assert_not @subcategory_inheriting_bc.visible_on_track?
+
+    # 4. subcategory inheriting, has spending => visible
+    @subcategory_inheriting_bc.stubs(:actual_spending).returns(10)
+    assert @subcategory_inheriting_bc.visible_on_track?
+  end
+
+  test "suggested_daily_spending uses budget.end_date for custom month periods" do
+    @family.update!(month_start_day: 15)
+
+    # Today (Jun 1) is in the calendar month after the budget period start (May 15).
+    # The pre-fix helper compared start_date.month to Date.current.month and returned nil here.
+    travel_to Date.new(2026, 6, 1) do
+      @budget.update!(start_date: Date.new(2026, 5, 15), end_date: Date.new(2026, 6, 14))
+      @parent_budget_category.stubs(:actual_spending).returns(0)
+
+      suggestion = @parent_budget_category.suggested_daily_spending
+
+      assert suggestion, "expected suggested_daily_spending when current period spans calendar months"
+      assert_equal 14, suggestion[:days_remaining]
+    end
+  end
 end

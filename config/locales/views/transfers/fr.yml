@@ -8,10 +8,14 @@ fr:
     form:
       amount: Montant
       date: Date
+      destination_amount: Montant de destination
+      destination_amount_display: "Montant de destination : %{amount}"
+      exchange_rate_display: "Taux de change : %{rate}"
       expense: Dépense
       from: De
       income: Revenu
       select_account: Sélectionner un compte
+      source_amount: Montant source
       submit: Créer le transfert
       to: Vers
       transfer: Transfert

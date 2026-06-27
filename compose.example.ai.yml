@@ -112,12 +112,33 @@ x-rails-env: &rails_env
 
 services:
   pipelock:
-    image: ghcr.io/luckypipewrench/pipelock:latest  # pin to a specific version (e.g., :2.0.0) for production
+    image: ghcr.io/luckypipewrench/pipelock:2.8.0
+    user: "${PIPELOCK_UID:-1000}:${PIPELOCK_GID:-1000}"
     container_name: pipelock
     hostname: pipelock
     restart: unless-stopped
     volumes:
       - ./pipelock.example.yaml:/etc/pipelock/pipelock.yaml:ro
+      # Optional signed receipts (flight recorder). Off until you create the
+      # dirs, generate a key, uncomment the two mounts below, and uncomment
+      # flight_recorder.dir + signing_key_path in pipelock.example.yaml.
+      # Create the dirs yourself first so they are owned by your host user
+      # (Docker would otherwise create missing bind-mount paths as root, which
+      # the uid-1000 Pipelock process cannot write to):
+      #   mkdir -p ./pipelock-evidence ./pipelock-keys
+      # Generate the receipt-signing key via the image (no host binary needed;
+      # --out must be an absolute path inside the container):
+      #   docker run --rm -v "$PWD/pipelock-keys:/keys" ghcr.io/luckypipewrench/pipelock:2.8.0 \
+      #     signing key generate --purpose receipt-signing --out /keys/flight-recorder-signing.key --id sure-compose
+      # The key is written 0600 owned by uid 1000 (Pipelock's default user). If
+      # your host user is not uid 1000, use this variant instead:
+      #   export PIPELOCK_UID="$(id -u)" PIPELOCK_GID="$(id -g)"
+      #   docker run --rm --user "$PIPELOCK_UID:$PIPELOCK_GID" -v "$PWD/pipelock-keys:/keys" ghcr.io/luckypipewrench/pipelock:2.8.0 \
+      #     signing key generate --purpose receipt-signing --out /keys/flight-recorder-signing.key --id sure-compose
+      # That makes the key and evidence directory readable/writable by the same
+      # uid/gid the compose service uses.
+      # - ./pipelock-evidence:/var/lib/pipelock/evidence
+      # - ./pipelock-keys:/etc/pipelock/keys:ro
     command:
       - "run"
       - "--config"
@@ -187,7 +208,7 @@ services:
       - WEBUI_AUTH=False
       - WEBUI_NAME=AI
       - WEBUI_URL=http://localhost:8080
-      - WEBUI_SECRET_KEY=t0p-s3cr3t
+      - WEBUI_SECRET_KEY=t0p-s3cr3t # pipelock:ignore
       - NO_PROXY=host.docker.internal
     extra_hosts:
       - host.docker.internal:host-gateway
@@ -255,10 +276,16 @@ services:
       # bypassing Pipelock's MCP scanning (auth token is still required).
       # For hardened deployments, use `expose: [3000]` instead and front
       # the web UI with a separate reverse proxy.
+      #
+      # To also publish on IPv6 (dual-stack), uncomment the line below AND
+      # set BINDING=:: in the environment block. See docs/hosting/docker.md
+      # "Binding to IPv6" for details.
+      # - "[::]:${PORT:-3000}:3000"
       - ${PORT:-3000}:3000
     restart: unless-stopped
     environment:
       <<: *rails_env
+      # BINDING: "::"  # Uncomment for IPv6 dual-stack inside the container
     depends_on:
       db:
         condition: service_healthy
@@ -319,7 +346,7 @@ services:
       - POSTGRES_HOST=db
       - POSTGRES_DB=${POSTGRES_DB:-sure_production}
       - POSTGRES_USER=${POSTGRES_USER:-sure_user}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-sure_password}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-sure_password} # pipelock:ignore
       - SCHEDULE=@daily # Runs once a day at midnight
       - BACKUP_KEEP_DAYS=7 # Keeps the last 7 days of backups
       - BACKUP_KEEP_WEEKS=4 # Keeps 4 weekly backups

@@ -40,7 +40,7 @@
           </thead>
           <tbody class="font-medium text-sm">
             <% holdings.each_with_index do |holding, idx| %>
-              <tr class="<%= idx < holdings.size - 1 ? "border-b border-divider" : "" %>">
+              <tr class="<%= idx < holdings.size - 1 ? "table-divider" : "" %>">
                 <td class="p-4">
                   <div class="flex items-center gap-3">
                     <% if holding.security.logo_url.present? %>
@@ -97,7 +97,7 @@
               </div>
               <div>
                 <p class="text-xs text-secondary"><%= t(".contributions") %></p>
-                <p class="font-medium text-green-600 privacy-sensitive"><%= format_money(totals.contributions) %></p>
+                <p class="font-medium text-primary privacy-sensitive"><%= format_money(totals.contributions) %></p>
               </div>
             </div>
             <div class="flex items-center gap-2">
@@ -106,7 +106,7 @@
               </div>
               <div>
                 <p class="text-xs text-secondary"><%= t(".withdrawals") %></p>
-                <p class="font-medium text-orange-600 privacy-sensitive"><%= format_money(totals.withdrawals) %></p>
+                <p class="font-medium text-primary privacy-sensitive"><%= format_money(totals.withdrawals) %></p>
               </div>
             </div>
             <div class="flex items-center gap-2">

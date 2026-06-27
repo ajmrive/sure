@@ -48,7 +48,14 @@ module AccountableResource
       @account.lock_saved_attributes!
     end
 
-    redirect_to account_params[:return_to].presence || @account, notice: t("accounts.create.success", type: accountable_type.name.underscore.humanize)
+    # Prefer the form-carried return_to, then the session value StoreLocation
+    # captured from `?return_to=` (survives multi-step flows where the param
+    # isn't threaded), then the account page. The form param is sanitized here
+    # (the session value is already filtered at store time); the session is
+    # consumed with delete so a stale value can't leak into a later flow.
+    return_path = safe_return_to(account_params[:return_to]) || session.delete(:return_to).presence || @account
+    redirect_to return_path,
+                notice: t("accounts.create.success", type: accountable_type.name.underscore.humanize)
   end
 
   def update
@@ -62,8 +69,10 @@ module AccountableResource
       end
     end
 
-    # Update remaining account attributes
-    update_params = account_params.except(:return_to, :balance, :currency, :opening_balance_date)
+    # Update remaining account attributes. Note: currency is intentionally allowed
+    # here so all account types (depositories, credit cards, loans, etc.) can
+    # have their currency changed via this shared update path.
+    update_params = account_params.except(:return_to, :balance, :opening_balance_date)
     unless @account.update(update_params)
       @error_message = @account.errors.full_messages.join(", ")
       render :edit, status: :unprocessable_entity
