@@ -129,6 +129,9 @@ class ReportsController < ApplicationController
       # Category monthly pivot (reuses export breakdown logic)
       @category_monthly_data = build_monthly_breakdown_for_view
 
+      # Per-category daily/weekly/monthly spending drill-down
+      @category_daily_data = build_category_daily_data
+
       # Flags for view rendering
       @has_accounts = accessible_accounts.any?
     end
@@ -181,6 +184,14 @@ class ReportsController < ApplicationController
           partial: "reports/category_monthly_pivot",
           locals: { category_monthly_data: @category_monthly_data },
           visible: @has_accounts && @category_monthly_data[:months].size > 1,
+          collapsible: true
+        },
+        {
+          key: "category_daily",
+          title: "reports.category_daily.title",
+          partial: "reports/category_daily",
+          locals: { category_daily_data: @category_daily_data },
+          visible: @has_accounts && @category_daily_data[:has_data],
           collapsible: true
         },
         {
@@ -736,38 +747,136 @@ class ReportsController < ApplicationController
         breakdown[category_name][:total] += signed_amount
       end
 
-      # Current-year YTD average: divide the sum across current-year months that
-      # fall within the displayed range by that count. Keeps the metric honest
-      # when the period only partially overlaps the current year.
-      current_year = Date.current.year
-      current_year_months = months.select { |m| m.year == current_year }
-      cy_count = current_year_months.size
-
-      # Sort by total descending (highest expense first)
+      # Sort by total descending (highest expense first). Rows keep the
+      # income_statement signing (expenses positive, income negative); the
+      # accountant-style metrics are derived by CategoryMonthlyPivot.
       rows = breakdown.sort_by { |_name, data| -data[:total] }.map do |name, data|
-        cy_sum = current_year_months.sum { |m| data[:months][m] || 0 }
-        cy_avg = cy_count.positive? ? (cy_sum / cy_count) : nil
-        { category: name, months: data[:months], total: data[:total], current_year_avg: cy_avg }
+        { category: name, months: data[:months], total: data[:total] }
       end
 
-      # Column totals
-      month_totals = months.each_with_object({}) do |month, totals|
-        totals[month] = rows.sum { |row| row[:months][month] || 0 }
-      end
-
-      cy_totals_sum = current_year_months.sum { |m| month_totals[m] || 0 }
-      cy_totals_avg = cy_count.positive? ? (cy_totals_sum / cy_count) : nil
+      pivot = CategoryMonthlyPivot.new(months: months, rows: rows)
 
       {
         months: months,
-        rows: rows,
-        month_totals: month_totals,
-        grand_total: rows.sum { |row| row[:total] },
+        rows: pivot.rows_with_metrics,
         currency: family_currency,
-        current_year: current_year,
-        current_year_months_count: cy_count,
-        current_year_avg_total: cy_totals_avg
+        month_expense: pivot.month_expense_totals,
+        month_income: pivot.month_income_totals,
+        month_net: pivot.month_net_totals,
+        savings_rates: pivot.savings_rates,
+        total_expense: pivot.total_expense,
+        total_income: pivot.total_income,
+        total_net: pivot.total_net,
+        avg_expense: pivot.avg_expense,
+        avg_income: pivot.avg_income,
+        avg_net: pivot.avg_net,
+        overall_savings_rate: pivot.overall_savings_rate
       }
+    end
+
+    # Builds the data for the per-category spending drill-down: a selectable
+    # category and its flows bucketed over time (daily/weekly/monthly).
+    def build_category_daily_data
+      amounts_by_id = category_amounts_by_id(@period)
+      return { has_data: false } if amounts_by_id.empty?
+
+      categories = Current.family.categories.includes(:parent).index_by(&:id)
+      children_by_parent = categories.values.group_by(&:parent_id)
+
+      # Roll up amounts so selecting a parent category includes its subcategories.
+      rolled = {}
+      categories.each_value do |category|
+        ids = [ category.id ]
+        ids += (children_by_parent[category.id] || []).map(&:id) if category.parent_id.nil?
+        list = ids.flat_map { |id| amounts_by_id[id] || [] }
+        next if list.empty?
+
+        spend = list.sum { |(_, amount)| amount.positive? ? amount : 0 }
+        next unless spend.positive?
+
+        rolled[category.id] = { list: list, spend: spend }
+      end
+
+      return { has_data: false } if rolled.empty?
+
+      # Selector options sorted by spend (highest first); parent default selection.
+      options = rolled.keys.sort_by { |id| -rolled[id][:spend] }.map do |id|
+        category = categories[id]
+        label = category.parent_id.present? ? "#{category.parent&.name} · #{category.name}" : category.name
+        [ id, label ]
+      end
+
+      # Category primary keys are UUID strings — never coerce to integer.
+      selected_id = params[:daily_category_id].presence
+      selected_id = options.first.first unless rolled.key?(selected_id)
+
+      # Same rollup over the previous period, for the selected category only.
+      previous_amounts_by_id = category_amounts_by_id(@previous_period)
+      selected_category = categories[selected_id]
+      selected_ids = [ selected_id ]
+      selected_ids += (children_by_parent[selected_id] || []).map(&:id) if selected_category.parent_id.nil?
+      previous_list = selected_ids.flat_map { |id| previous_amounts_by_id[id] || [] }
+
+      series = CategoryTimeSeries.new(
+        start_date: @start_date,
+        end_date: @end_date,
+        amounts: rolled[selected_id][:list],
+        previous_amounts: previous_list
+      )
+
+      {
+        has_data: true,
+        currency: Current.family.currency,
+        options: options,
+        selected_id: selected_id,
+        selected_label: options.find { |id, _| id == selected_id }&.last,
+        granularity: series.granularity,
+        buckets: series.buckets,
+        total: series.total,
+        average: series.average,
+        max_value: series.max_value,
+        scale_max: series.scale_max,
+        period_type: @period_type,
+        start_date: @start_date,
+        end_date: @end_date
+      }
+    end
+
+    # Flows (converted, income_statement-signed) grouped by the transaction's own
+    # category id for a given period. Skips uncategorized transactions.
+    def category_amounts_by_id(period)
+      transactions = Transaction
+        .joins(:entry)
+        .joins(entry: :account)
+        .where(accounts: { family_id: Current.family.id, status: [ "draft", "active" ] })
+        .where(entries: { entryable_type: "Transaction", excluded: false, date: period.date_range })
+        .where.not(kind: Transaction::BUDGET_EXCLUDED_KINDS)
+        .excluding_pending
+        .includes(entry: :account, category: [])
+
+      transactions = apply_transaction_filters(transactions)
+
+      family_currency = Current.family.currency
+      amounts = Hash.new { |hash, key| hash[key] = [] }
+
+      transactions.each do |transaction|
+        category_id = transaction.category_id
+        next if category_id.nil?
+
+        entry = transaction.entry
+        begin
+          converted = Money.new(entry.amount.abs, entry.currency).exchange_to(family_currency).amount
+        rescue Money::ConversionError
+          converted = entry.amount.abs
+        end
+
+        forced_expense = transaction.kind.in?(%w[investment_contribution loan_payment])
+        signed = forced_expense ? converted : (entry.amount > 0 ? converted : -converted)
+
+        amounts[category_id] << [ entry.date, signed ]
+      end
+
+      amounts
     end
 
     def build_monthly_breakdown_for_export

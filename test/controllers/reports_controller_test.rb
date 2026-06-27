@@ -245,4 +245,48 @@ class ReportsControllerTest < ActionDispatch::IntegrationTest
     assert_select "tr[data-category='category-#{subcategory_movies.id}']", text: /^Movies/
     assert_select "tr[data-category='category-#{subcategory_games.id}']", text: /^Games/
   end
+
+  test "category monthly pivot renders accountant-style totals across a multi-month period" do
+    account = @family.accounts.first
+
+    # Two different months so the pivot section is shown (hidden for single month)
+    create_transaction(account: account, name: "Groceries", amount: 100, date: 2.months.ago.to_date)
+    create_transaction(account: account, name: "Salary", amount: -1000, date: 2.months.ago.to_date)
+    create_transaction(account: account, name: "Groceries", amount: 400, date: 1.month.ago.to_date)
+
+    get reports_path(
+      period_type: :custom,
+      start_date: 2.months.ago.beginning_of_month.to_date.to_s,
+      end_date: Date.current.to_s
+    )
+
+    assert_response :ok
+    # New footer rows from the accountant-style redesign
+    assert_includes @response.body, I18n.t("reports.category_monthly_pivot.total_expenses")
+    assert_includes @response.body, I18n.t("reports.category_monthly_pivot.total_income")
+    assert_includes @response.body, I18n.t("reports.category_monthly_pivot.net")
+    assert_includes @response.body, I18n.t("reports.category_monthly_pivot.savings_rate")
+    assert_includes @response.body, I18n.t("reports.category_monthly_pivot.average")
+  end
+
+  test "category over time section renders a bar chart for the top-spending category" do
+    account = @family.accounts.first
+    category = @family.categories.create!(name: "Dining", color: "#FF5733")
+
+    create_transaction(account: account, name: "Dinner", amount: 80, date: 10.days.ago.to_date, category: category)
+    create_transaction(account: account, name: "Lunch", amount: 40, date: 3.days.ago.to_date, category: category)
+
+    get reports_path(
+      period_type: :custom,
+      start_date: 1.month.ago.beginning_of_month.to_date.to_s,
+      end_date: Date.current.to_s,
+      daily_category_id: category.id
+    )
+
+    assert_response :ok
+    assert_includes @response.body, I18n.t("reports.category_daily.total")
+    assert_includes @response.body, I18n.t("reports.category_daily.legend_current")
+    # The category selector should be present with our category selected
+    assert_select "select[name=daily_category_id] option[selected][value=?]", category.id.to_s
+  end
 end

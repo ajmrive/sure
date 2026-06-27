@@ -1,0 +1,112 @@
+<%# Per-category spending over time as a CSS bar chart with adaptive granularity. %>
+<%# Local variables: category_daily_data %>
+
+<%
+  data        = category_daily_data
+  currency    = data[:currency]
+  buckets     = data[:buckets]
+  scale_max   = data[:scale_max].to_f
+  granularity = data[:granularity]
+
+  # Show ~12 axis labels at most so they never overlap.
+  label_step = [ (buckets.size / 12.0).ceil, 1 ].max
+
+  bucket_label = ->(date) {
+    case granularity
+    when :monthly then l(date, format: "%b %y")
+    else l(date, format: "%-d %b")
+    end
+  }
+
+  height_pct = ->(value) { scale_max > 0 ? [ (value.abs / scale_max * 100), 100 ].min : 0 }
+%>
+
+<%# Category selector (outside the frame so it persists across refreshes) %>
+<%= form_with url: reports_path, method: :get,
+      data: { turbo_frame: "category_daily_chart", controller: "auto-submit-form" },
+      class: "flex flex-wrap items-center gap-3 mb-4" do |f| %>
+  <%= f.hidden_field :period_type, value: data[:period_type] %>
+  <%= f.hidden_field :start_date, value: data[:start_date].to_s %>
+  <%= f.hidden_field :end_date, value: data[:end_date].to_s %>
+
+  <label class="text-sm font-medium text-secondary" for="daily_category_id">
+    <%= t("reports.category_daily.category_label") %>
+  </label>
+  <%= f.select :daily_category_id,
+        options_for_select(data[:options].map { |id, label| [ label, id ] }, data[:selected_id]),
+        {},
+        data: { auto_submit_form_target: "auto" },
+        class: "px-3 py-1.5 border border-primary rounded-lg text-sm bg-container-inset text-primary max-w-xs" %>
+<% end %>
+
+<%= turbo_frame_tag "category_daily_chart" do %>
+  <%# Summary metrics %>
+  <div class="flex flex-wrap gap-6 mb-4">
+    <div>
+      <p class="text-xs uppercase font-medium text-secondary"><%= t("reports.category_daily.total") %></p>
+      <p class="text-lg font-semibold text-primary tabular-nums privacy-sensitive">
+        <%= Money.new(data[:total].abs, currency).format %>
+      </p>
+    </div>
+    <div>
+      <p class="text-xs uppercase font-medium text-secondary">
+        <%= t("reports.category_daily.average.#{granularity}") %>
+      </p>
+      <p class="text-lg font-semibold text-primary tabular-nums privacy-sensitive">
+        <%= Money.new(data[:average].abs, currency).format %>
+      </p>
+    </div>
+  </div>
+
+  <% if buckets.any? && scale_max > 0 %>
+    <% avg_pct = height_pct.call(data[:average]) %>
+    <%# Chart: bars sit on the baseline; average drawn as a dashed line. %>
+    <div class="relative pt-6">
+      <%# Average reference line %>
+      <div class="absolute inset-x-0 border-t border-dashed border-primary/40 z-10"
+           style="bottom: calc(1.5rem + <%= avg_pct %>%);"
+           title="<%= t("reports.category_daily.average.#{granularity}") %>: <%= Money.new(data[:average].abs, currency).format %>">
+        <span class="absolute right-0 -top-4 text-[10px] text-secondary bg-container px-1">
+          <%= t("reports.category_daily.avg_short") %>
+        </span>
+      </div>
+
+      <div class="flex items-end gap-px h-48">
+        <% buckets.each_with_index do |bucket, idx| %>
+          <% cur_h = height_pct.call(bucket[:value]) %>
+          <% prev_h = height_pct.call(bucket[:prev_value]) %>
+          <div class="flex-1 min-w-0 h-full flex flex-col justify-end items-center group relative"
+               title="<%= bucket_label.call(bucket[:start]) %> · <%= Money.new(bucket[:value].abs, currency).format %><% if bucket[:prev_value].abs > 0 %> (<%= t("reports.category_daily.previous") %>: <%= Money.new(bucket[:prev_value].abs, currency).format %>)<% end %>">
+            <%# Bars: previous (ghost) behind, current in front %>
+            <div class="relative w-full h-full flex items-end justify-center">
+              <% if prev_h > 0 %>
+                <div class="absolute bottom-0 w-2/3 rounded-t-sm bg-gray-300 dark:bg-gray-600"
+                     style="height: <%= prev_h %>%;"></div>
+              <% end %>
+              <div class="relative w-2/3 rounded-t-sm <%= bucket[:is_max] ? "bg-warning" : "bg-destructive" %> privacy-sensitive"
+                   style="height: <%= cur_h %>%;"></div>
+            </div>
+          </div>
+        <% end %>
+      </div>
+
+      <%# X-axis labels (sparse) %>
+      <div class="flex gap-px mt-1">
+        <% buckets.each_with_index do |bucket, idx| %>
+          <div class="flex-1 min-w-0 text-center text-[10px] text-subdued whitespace-nowrap overflow-hidden">
+            <%= (idx % label_step).zero? ? bucket_label.call(bucket[:start]) : "" %>
+          </div>
+        <% end %>
+      </div>
+    </div>
+
+    <%# Legend %>
+    <div class="flex flex-wrap items-center gap-4 mt-4 text-xs text-subdued">
+      <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-sm bg-destructive"></span><%= t("reports.category_daily.legend_current") %></span>
+      <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-sm bg-warning"></span><%= t("reports.category_daily.legend_max") %></span>
+      <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-sm bg-gray-300 dark:bg-gray-600"></span><%= t("reports.category_daily.legend_previous") %></span>
+    </div>
+  <% else %>
+    <p class="text-secondary text-sm py-4 text-center"><%= t("reports.category_daily.no_data") %></p>
+  <% end %>
+<% end %>

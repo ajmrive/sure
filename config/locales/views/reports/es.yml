@@ -155,10 +155,28 @@ es:
       title: Categorías por mes
       category: Categoría
       total: Total
-      monthly_total: Total mensual
-      avg_year: "Media %{year}"
-      legend: "Rojo más intenso = mayor gasto, verde más intenso = mayor ingreso respecto al periodo."
+      average: Media
+      total_expenses: Total gastos
+      total_income: Total ingresos
+      net: Neto
+      savings_rate: Tasa de ahorro
+      deviation_hint: Desviación respecto a la media de esta categoría
+      legend: "Rojo = gasto, verde = ingreso. ▲/▼ marcan los meses que se desvían de la media de cada categoría. Tasa de ahorro = neto ÷ ingresos."
       no_data: No hay datos de transacciones para este periodo.
+    category_daily:
+      title: Categoría en el tiempo
+      category_label: "Categoría:"
+      total: Total gastado
+      avg_short: Media
+      average:
+        daily: Media por día
+        weekly: Media por semana
+        monthly: Media por mes
+      previous: anterior
+      legend_current: Gasto
+      legend_max: Máximo
+      legend_previous: Periodo anterior
+      no_data: No hay datos de gasto para esta categoría.
     investment_flows:
       title: Flujos de inversión
       description: Controla el dinero que entra y sale de tus cuentas de inversión

@@ -13,7 +13,12 @@ development:
 
 test:
   <<: *default
-  database: <%= ENV.fetch("POSTGRES_DB") { "sure_test" } %>
+  # IMPORTANT: decoupled from POSTGRES_DB on purpose. POSTGRES_DB is shared by
+  # development/production and is set to the real database in the Docker setup
+  # (compose.dev.yml). If the test env also read POSTGRES_DB, running the test
+  # suite would truncate the real database. Tests always use sure_test unless
+  # POSTGRES_TEST_DB is explicitly set.
+  database: <%= ENV.fetch("POSTGRES_TEST_DB") { "sure_test" } %>
 
 production:
   <<: *default

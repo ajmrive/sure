@@ -42,8 +42,8 @@ services:
       - app-storage:/workspace/storage
     ports:
       # Bind to loopback only so the app isn't reachable from the LAN.
-      - 127.0.0.1:${PORT:-4000}:3000
-    restart: "no"
+      - 127.0.0.1:${PORT:-4321}:3000
+    restart: unless-stopped
     working_dir: /workspace
     command: bin/dev
     environment:
@@ -69,7 +69,7 @@ services:
       - .:/workspace:cached
       - bundle_cache:/bundle
       - app-storage:/workspace/storage
-    restart: "no"
+    restart: unless-stopped
     working_dir: /workspace
     command: bundle exec sidekiq
     depends_on:
@@ -87,7 +87,7 @@ services:
 
   db:
     image: mirror.gcr.io/library/postgres:16
-    restart: "no"
+    restart: unless-stopped
     volumes:
       - postgres-data:/var/lib/postgresql/data
     environment:
@@ -102,7 +102,7 @@ services:
 
   redis:
     image: mirror.gcr.io/library/redis:latest
-    restart: "no"
+    restart: unless-stopped
     volumes:
       - redis-data:/data
     healthcheck:
@@ -110,6 +110,28 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    networks:
+      - sure_net
+
+  # Automated daily Postgres backups -> ~/sure-backups on the host.
+  # Keeps 7 daily / 4 weekly / 6 monthly dumps (prodrigestivill/postgres-backup-local).
+  backup:
+    image: prodrigestivill/postgres-backup-local
+    restart: unless-stopped
+    volumes:
+      - ${BACKUP_PATH:-/home/antonio/sure-backups}:/backups
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_DB: ${POSTGRES_DB:-sure_production}
+      POSTGRES_USER: ${POSTGRES_USER:-sure_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-sure_password}
+      SCHEDULE: "@daily"
+      BACKUP_KEEP_DAYS: "7"
+      BACKUP_KEEP_WEEKS: "4"
+      BACKUP_KEEP_MONTHS: "6"
+    depends_on:
+      db:
+        condition: service_healthy
     networks:
       - sure_net
 

@@ -155,10 +155,28 @@ en:
       title: Category by Month
       category: Category
       total: Total
-      monthly_total: Monthly Total
-      avg_year: "Avg %{year}"
-      legend: "Red intensity = higher expense, green intensity = higher income relative to the period."
+      average: Average
+      total_expenses: Total expenses
+      total_income: Total income
+      net: Net
+      savings_rate: Savings rate
+      deviation_hint: Deviation from this category's average
+      legend: "Red = expense, green = income. ▲/▼ mark months that deviate from each category's average. Savings rate = net ÷ income."
       no_data: No transaction data available for this period.
+    category_daily:
+      title: Category over Time
+      category_label: "Category:"
+      total: Total spent
+      avg_short: Avg
+      average:
+        daily: Average per day
+        weekly: Average per week
+        monthly: Average per month
+      previous: previous
+      legend_current: Spending
+      legend_max: Highest
+      legend_previous: Previous period
+      no_data: No spending data available for this category.
     investment_flows:
       title: Investment Flows
       description: Track money flowing into and out of your investment accounts
